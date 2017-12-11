@@ -18,11 +18,11 @@ class CollectorMetricRouterListener(RouterListener):
 
 	def on_recv(self, msg):
 		conn_id = msg[0]
+		self.identities[conn_id] = datetime.utcnow()
 		if msg[1] == MetricsMessage.header:
 			msg_obj = MetricsMessage.from_msg(msg[1:])
 			self.app.record_metrics_from_id(conn_id, msg_obj.hostname, msg_obj.grid_dict)
 		elif msg[1] == ControlMessage.header:
-			self.identities[conn_id] = datetime.utcnow()
 			msg_obj = ControlMessage.from_msg(msg[1:])
 			if msg_obj.message == "hello":
 				print("Received 'hello' message from agent %s" % conn_id)
@@ -46,8 +46,9 @@ class CollectorClientRouterListener(RouterListener):
 		self.server.on_recv(self.on_recv)
 
 	def on_recv(self, msg):
+		client_conn_id = msg[0]
+		self.identities[client_conn_id] = datetime.utcnow()
 		if msg[1] == ControlMessage.header:
-			client_conn_id = msg[0]
 			msg_obj = ControlMessage.from_msg(msg[1:])
 			if msg_obj.message == "hello":
 				print("Received 'hello' message from agent %s" % client_conn_id)
@@ -55,7 +56,7 @@ class CollectorClientRouterListener(RouterListener):
 					print("Sending 'ready' ControlMessage to agent %s" % client_conn_id)
 					resp_msg_obj = ControlMessage("ready")
 					resp_msg_obj.send(self.server, identity=client_conn_id)
-				self.identities[client_conn_id] = datetime.utcnow()
+
 
 	def remove_client(self, client_conn_id):
 		del self.identities[client_conn_id]
@@ -94,15 +95,26 @@ class AppCollector(object):
 				# zap client from our list of active clients
 				self.listen_clients.remove_client(client_conn_id)
 
-		# Periodically send "ready" message back to connected agents:
-		# TODO: if haven't seen agent in a while, remove from agent_identities....
+
+		to_remove = []
+
+		# Periodically send "ready" message back to connected agents, or if we haven't seen them in a while, remove
+		# them from our list of active agents.
+
 		for conn_id, last_seen in self.listen_agents.identities.items():
-			msg_obj = ControlMessage("ready")
-			msg_obj.send(self.listen_agents.server, identity=conn_id)
 			if (utc_now - last_seen) > self.stale_interval:
-				# TODO: might get into trouble modifying a dict we happen to be iterating through
-				del self.listen_agents.identities[conn_id]
-				# TODO: perform other cleanups -- dump metrics
+				print("Adding %s to removal list" % conn_id)
+				to_remove.append(conn_id)
+			else:
+				msg_obj = ControlMessage("ready")
+				msg_obj.send(self.listen_agents.server, identity=conn_id)
+
+		# remove from dictionary outside of loop iterating over dictionary:
+		for conn_id in to_remove:
+			del self.listen_agents.identities[conn_id]
+
+
+		# TODO: perform other cleanups -- dump metrics
 
 	def start(self):
 		self.periodic.start()
