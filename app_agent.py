@@ -3,13 +3,29 @@
 from app_core import *
 from zmq_msg_metrics import MetricsMessage, ControlMessage
 from metrics import Host, UptimeCollector, MeminfoCollector, CollectionGrid
+from logging_settings import *
+from datetime import datetime, timedelta
 
 # This file defines an agent, which is designed to run on a monitored Linux system, and will report metrics to a
-# remote collector every 15 seconds. The metrics reported back are dynamic in nature so they must be reported often.
+# remote collector.
 
-# In addition, the agent will listen for special 'model this hostname' messages from the collector. When such a message
-# is received, the agent will reply immediately with current metrics, but will also include less-frequently changed
-# information about the hostname, such as configured hardware, etc.
+# Upon initial connection to a remote collector, the agent will send a "hello" ControlMessage. When the remote
+# collector receives this message, it will reply to the agent with a "model" ControlMessage. The "model" ControlMessage
+# tells the agent to immediately send back not only metrics, but also infrequently-changing metrics, such as amount of
+# RAM in the system, for example. While we are using an asynchronous ROUTER/DEALER pattern, this initial exchange is
+# implemented as effectively synchronous, meaning that the collector immediately responds to the agent's "hello"
+# message with a "model" ControlMessage, and the agent immediately replies to the "model" ControlMessage with a
+# message with current model and metrics data.
+
+# After this initial message exchange, the agent send back metrics every 5 seconds (this frequency is configurable.)
+# The agent will expect to receive a "hello" ControlMessage from the collector within 30 seconds of having received
+# the initial "model" message, and will expect to continue to receive these "hello" messages at least every 30 seconds.
+
+# If the agent does not receive a message from the collector at least every 30 seconds, then the agent will assume that
+# the connection to the collector is stale, and will shut down its ioloop and attempt to reconnect. It is important to
+# note that the ongoing metrics messages that are sent from agent to collector, as well as the periodic "hello"
+# ControlMessages from collector back to agent are sent asynchronously -- the "hello" from the collector is not a
+# direct response to the metrics message, or vice-versa.
 
 # To use the agent, run it from the command-line and specify the hostname or IP address of the remote collector as a
 # command-line argument. CurveZMQ is used for the transport, and the collector is configured to not have ZAP enabled,
@@ -35,32 +51,46 @@ class AgentDealerConnection(DealerConnection):
 		self.client.on_recv(self.on_recv)
 
 	def on_recv(self, msg):
-		self.app.last_collector_msg_on = datetime.utcnow()
 		if msg[0] == ControlMessage.header:
+			self.app.last_collector_msg_on = datetime.utcnow()
+			if self.app.periodic_stale is None:
+
+				# We have just received our initial message from the collector. We want to now start a periodic
+				# task to check every 30 seconds whether we have heard from the collector. Otherwise, we will
+				# consider our connection the the collector to be stale:
+
+				self.app.start_stale_periodic_task()
 			msg_obj = ControlMessage.from_msg(msg)
 			if msg_obj.message == "model":
-				print("Received model request from collector")
+				logging.info("Received model request from collector")
 				self.app.send_msg(metric_type='model')
-			elif msg_obj.message == "ready":
-				print("Received ready message from collector")
+				return
+			else:
+				logging.info("Received %s message from collector" % msg_obj.message)
+				return
+
+		logging.warning("Received unknown message from collector")
 
 class AppAgent(object):
 
 	"""The AppAgent is the main python class that wraps our agent application. It is configured to report metrics
-	back to the collector every interval_ms seconds (15000 by default, configurable below.) The AppAgent defines
+	back to the collector every metrics_interval_ms seconds (15000 by default, configurable below.) The AppAgent defines
 	a periodic task to make this happen. It also defines the helper send_msg() method which is used internally by
 	AppAgent as well as by the AgentDealerConnection to reply to 'model this hostname' messages."""
 
-	interval_ms = 1000
+	metrics_interval_ms = 15000
+	stale_interval_ms = 30000
+	stale_interval_timedelta = timedelta(seconds=stale_interval_ms//1000)
 
-	def __init__(self, collector_host):
+	def __init__(self):
 
-		# agent ZeroMQ initialization:
-		self.collector_host = collector_host
-		self.collector_conn = AgentDealerConnection(app=self, collector_host=self.collector_host)
-		self.periodic = PeriodicCallback(self.periodictask, self.interval_ms)
+		self.collector_host = None
+		self.collector_conn = None
+		self.periodic_stale = None
+		self.periodic_metrics = None
 
 		# agent metrics initialization:
+
 		self.localhost = Host()
 		self.collectors = [UptimeCollector(), MeminfoCollector()]
 
@@ -68,48 +98,64 @@ class AppAgent(object):
 		# data back.
 
 		self.last_collector_msg_on = None
-		self.timeout = timedelta(seconds=10)
-		self.sending = False
 
-	def send_msg(self, metric_type='attributes'):
+	def setup_collector_connection(self, collector_host):
+
+		# agent ZeroMQ initialization:
+		self.collector_host = collector_host
+		self.collector_conn = AgentDealerConnection(app=self, collector_host=self.collector_host)
+		self.periodic_metrics = PeriodicCallback(self.periodictask_send_metrics, self.metrics_interval_ms)
+		self.periodic_metrics.start()
+
+	def start_stale_periodic_task(self):
+
+		"""This method starts a PeriodicTask which runs every 30 seconds to see if we have received a message
+		from the collector in the last 30 seconds."""
+
+		self.periodic_stale = PeriodicCallback(self.periodictask_stale_connection, self.stale_interval_ms)
+		self.periodic_stale.start()
+
+		logging.info("Started periodic task to monitor for messages from collector.")
+
+	def send_msg(self, metric_type='metrics'):
+
 		"""collect metrics and send them back to the collector"""
+
 		grid = CollectionGrid()
 		for col in self.collectors:
 			grid.add_samples(col.get_samples(self.localhost, metric_type=metric_type))
 		msg = MetricsMessage(self.localhost.hostname, grid.get_grid())
-		print("Sending metrics to collector")
+		logging.info("Sending metrics to collector")
 		msg.send(self.collector_conn.client)
 
-	def periodictask(self):
+	def periodictask_stale_connection(self):
+
+		if self.last_collector_msg_on is None or datetime.utcnow() - self.last_collector_msg_on > self.stale_interval_timedelta:
+			logging.warning("No response from collector, no longer sending metrics.")
+			logging.debug("Stopping IOLoop.")
+			stop_ioloop()
+
+	def periodictask_send_metrics(self):
 
 		"""This runs every interval_ms seconds, and we don't need any logic here -- just send the metrics back
 		periodically."""
-		if self.last_collector_msg_on is None or datetime.utcnow() - self.last_collector_msg_on > self.timeout:
-			if self.sending == True:
-				print("No response from collector, no longer sending metrics.")
-				self.sending = False
-			stop_ioloop()
-			return
 
-		if self.sending:
+		if self.last_collector_msg_on is not None:
 			self.send_msg()
-		elif self.last_collector_msg_on is not None and datetime.utcnow() - self.last_collector_msg_on < self.timeout:
-			if self.sending == False:
-				print("Initiating sending of metrics to collector.")
-				self.sending = True
+		else:
+			logging.debug("Not yet sending metrics as we have not received anything from collector.")
 
+	def start(self, collector_host):
 
-	def start(self):
-		self.periodic.start()
-		self.collector_conn.start()
 		while True:
-			print("STARTUP")
-			# TODO: tear down and rebuild connection for collector if we lose it.
+			self.setup_collector_connection(collector_host)
 
-			print("Sending hello message")
+			logging.info("Sending hello message to collector.")
 			msg = ControlMessage("hello")
 			msg.send(self.collector_conn.client)
-			# this runs for a long time:
+
+			# This ioloop will exit if the collection collection becomes stale...
+
 			start_ioloop()
 
 if __name__ == "__main__":
@@ -117,5 +163,5 @@ if __name__ == "__main__":
 	if len(sys.argv) != 2:
 		print("Please specify the collector hostname or IP address as the first and only argument.")
 		sys.exit(1)
-	agent = AppAgent(collector_host=sys.argv[1])
-	agent.start()
+	agent = AppAgent()
+	agent.start(collector_host=sys.argv[1])

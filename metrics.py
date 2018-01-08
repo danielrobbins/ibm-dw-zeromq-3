@@ -160,7 +160,7 @@ class MeminfoCollector(Collector):
 				"SwapFree" : "mem.swap.free"
 			}
 		},
-		"attributes" : {
+		"model" : {
 			"keys":
 				[
 					{"key": "mem.total", "desc": "Total memory", "units": "kB", "python_type": int},
@@ -201,6 +201,6 @@ if __name__ == "__main__":
 	grid = CollectionGrid()
 
 	for col in collectors:
-		grid.add_samples(col.get_samples(localhost, metric_type='attributes'))
+		grid.add_samples(col.get_samples(localhost, metric_type='model'))
 
 	print(grid.get_grid())

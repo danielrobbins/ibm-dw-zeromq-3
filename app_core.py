@@ -2,13 +2,11 @@
 
 import sys
 import zmq
-
-from datetime import datetime, timedelta
-
 from zmq.eventloop.ioloop import IOLoop, PeriodicCallback
 from zmq.eventloop.zmqstream import ZMQStream
 from zmq.auth.ioloop import IOLoopAuthenticator
 from key_monkey import *
+from logging_settings import *
 
 class DealerConnection(object):
 
@@ -28,14 +26,11 @@ class DealerConnection(object):
 			self.client = self.keymonkey.setupClient(self.client, self.endpoint, remote_keyname)
 
 		self.client.connect(self.endpoint)
-		print("Connecting to", self.endpoint)
+		logging.info("Connecting to " + self.endpoint)
 		self.client = ZMQStream(self.client)
 		self.setup()
 
 	def setup(self):
-		pass
-
-	def start(self):
 		pass
 
 class RouterListener(object):
@@ -59,23 +54,23 @@ class RouterListener(object):
 			self.server = self.keymonkey.setupServer(self.server, self.bind_addr)
 
 		self.server.bind(self.bind_addr)
-		print("%s listening for new client connections at %s" % ( self.keyname, self.bind_addr))
+		logging.info("%s listening for new client connections at %s" % ( self.keyname, self.bind_addr))
 		self.server = ZMQStream(self.server)
 		# Setup ZAP:
 		if self.zap_auth:
 			if not self.crypto:
-				print("ZAP requires CurveZMQ (crypto) to be enabled. Exiting.")
+				logging.fatal("ZAP requires CurveZMQ (crypto) to be enabled. Exiting.")
 				sys.exit(1)
 			self.auth = IOLoopAuthenticator(self.ctx)
-			print(self.auth)
-			#self.auth.deny(None)
-			print("ZAP enabled.\nAuthorizing clients in %s." % self.keymonkey.authorized_clients_dir)
+			logging.info("ZAP enabled. Authorizing clients in %s." % self.keymonkey.authorized_clients_dir)
+			if not os.path.isdir(self.keymonkey.authorized_clients_dir):
+				logging.fatal("Directory not found: %s. Exiting." % self.keymonkey.authorized_clients_dir)
+				sys.exit(1)
 			self.auth.configure_curve(domain='*', location=self.keymonkey.authorized_clients_dir)
 		self.setup()
+		self.start()
 
 	def setup(self):
-		#self.server.on_recv(self.on_recv)
-		#self.periodic = PeriodicCallback(self.periodictask, 1000)
 		pass
 
 	def start(self):

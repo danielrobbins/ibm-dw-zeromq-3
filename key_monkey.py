@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 
-import os, os.path, sys
+import os, os.path
 
 import zmq
 import zmq.auth
+from logging_settings import *
 
 #	KeyMonkey uses an OpenSSH-like key storage directory: ~/.curve/
 #
@@ -45,10 +46,10 @@ class KeyMonkey(object):
 			server.curve_publickey = foo
 			server.curve_secretkey = bar
 		except IOError:
-			print("Couldn't load private key: %s" % self.private_key)
+			logging.error("Couldn't load private key: %s" % self.private_key)
 			return None
 		server.curve_server = True
-		print("Set up server listening on %s using curve key '%s'." % (endpoint, self.myid))
+		logging.info("Set up server listening on %s using curve key '%s'." % (endpoint, self.myid))
 		return server
 
 	def setupClient(self, client, endpoint, servername):
@@ -57,7 +58,7 @@ class KeyMonkey(object):
 		client.curve_secretkey = bar
 		foo, _ = zmq.auth.load_certificate(self.curvedir + "/" + servername + ".key" )
 		client.curve_serverkey = foo
-		print("Set up client connecting to %s (key '%s') using curve key '%s'." % (endpoint, servername, self.myid))
+		logging.info("Set up client connecting to %s (key '%s') using curve key '%s'." % (endpoint, servername, self.myid))
 		return client
 		
 # vim: ts=4 sw=4 noet

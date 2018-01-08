@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+from logging_settings import *
+
 class MultiPartMessage(object):
 
 	header = None
@@ -15,7 +17,7 @@ class MultiPartMessage(object):
 
 	def send(self, socket, identity=None):
 		"Send message to socket"
-		print("Sending %s message" % self.header)
+		logging.info("Sending %s message" % self.header)
 		msg = self.msg
 		if identity:
 			msg = [ identity ] + msg
