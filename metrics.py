@@ -110,8 +110,8 @@ class UptimeCollector(Collector):
 		}
 	}
 
-	def get_samples(self, host, metric_type='metrics'):
-		if metric_type != 'metrics':
+	def get_samples(self, host, metrics_type='metrics'):
+		if metrics_type != 'metrics':
 			return []
 		# this method returns a list of some kind, possibly even an empty list if there were no samples.
 		upt_data = host.get_file("/proc/uptime")
@@ -173,13 +173,13 @@ class MeminfoCollector(Collector):
 		}
 	}
 
-	def get_samples(self, host, metric_type="metrics"):
+	def get_samples(self, host, metrics_type="metrics"):
 
 		mem_data = host.get_file("/proc/meminfo")
 		timestamp = host.timestamp()
 		metrics = []
 
-		my_strings = self.metric_defs[metric_type]["strings"]
+		my_strings = self.metric_defs[metrics_type]["strings"]
 
 		if mem_data == None:
 			pass
@@ -201,6 +201,6 @@ if __name__ == "__main__":
 	grid = CollectionGrid()
 
 	for col in collectors:
-		grid.add_samples(col.get_samples(localhost, metric_type='model'))
+		grid.add_samples(col.get_samples(localhost, metrics_type='model'))
 
 	print(grid.get_grid())

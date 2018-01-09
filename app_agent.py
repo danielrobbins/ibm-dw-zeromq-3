@@ -12,20 +12,20 @@ from datetime import datetime, timedelta
 # Upon initial connection to a remote collector, the agent will send a "hello" ControlMessage. When the remote
 # collector receives this message, it will reply to the agent with a "model" ControlMessage. The "model" ControlMessage
 # tells the agent to immediately send back not only metrics, but also infrequently-changing metrics, such as amount of
-# RAM in the system, for example. While we are using an asynchronous ROUTER/DEALER pattern, this initial exchange is
+# RAM in the system, for example. Although we are using an asynchronous ROUTER/DEALER pattern, this initial exchange is
 # implemented as effectively synchronous, meaning that the collector immediately responds to the agent's "hello"
 # message with a "model" ControlMessage, and the agent immediately replies to the "model" ControlMessage with a
-# message with current model and metrics data.
+# message containing model data for this host.
 
 # After this initial message exchange, the agent send back metrics every 5 seconds (this frequency is configurable.)
-# The agent will expect to receive a "hello" ControlMessage from the collector within 30 seconds of having received
-# the initial "model" message, and will expect to continue to receive these "hello" messages at least every 30 seconds.
+# The agent will expect to receive a "ping" ControlMessage from the collector within 30 seconds of having received
+# the initial "model" message, and will expect to continue to receive these "ping" messages at least every 30 seconds.
 
 # If the agent does not receive a message from the collector at least every 30 seconds, then the agent will assume that
 # the connection to the collector is stale, and will shut down its ioloop and attempt to reconnect. It is important to
-# note that the ongoing metrics messages that are sent from agent to collector, as well as the periodic "hello"
-# ControlMessages from collector back to agent are sent asynchronously -- the "hello" from the collector is not a
-# direct response to the metrics message, or vice-versa.
+# note that the ongoing metrics messages that are sent from agent to collector, as well as the periodic "ping"
+# ControlMessages from collector back to agent are sent asynchronously -- the "ping" from the collector is not a
+# direct response to the metrics message, and vice-versa.
 
 # To use the agent, run it from the command-line and specify the hostname or IP address of the remote collector as a
 # command-line argument. CurveZMQ is used for the transport, and the collector is configured to not have ZAP enabled,
@@ -51,8 +51,8 @@ class AgentDealerConnection(DealerConnection):
 		self.client.on_recv(self.on_recv)
 
 	def on_recv(self, msg):
+		self.app.last_collector_msg_on = datetime.utcnow()
 		if msg[0] == ControlMessage.header:
-			self.app.last_collector_msg_on = datetime.utcnow()
 			if self.app.periodic_stale is None:
 
 				# We have just received our initial message from the collector. We want to now start a periodic
@@ -62,14 +62,14 @@ class AgentDealerConnection(DealerConnection):
 				self.app.start_stale_periodic_task()
 			msg_obj = ControlMessage.from_msg(msg)
 			if msg_obj.message == "model":
-				logging.info("Received model request from collector")
-				self.app.send_msg(metric_type='model')
+				self.app.received_model_request = True
+				logging.info("Received model request from collector.")
+				self.app.send_msg(metrics_type='model')
 				return
 			else:
-				logging.info("Received %s message from collector" % msg_obj.message)
+				logging.info("Received %s message from collector." % msg_obj.message)
 				return
-
-		logging.warning("Received unknown message from collector")
+		logging.warning("Received unknown message from collector.")
 
 class AppAgent(object):
 
@@ -78,7 +78,7 @@ class AppAgent(object):
 	a periodic task to make this happen. It also defines the helper send_msg() method which is used internally by
 	AppAgent as well as by the AgentDealerConnection to reply to 'model this hostname' messages."""
 
-	metrics_interval_ms = 15000
+	metrics_interval_ms = 5000
 	stale_interval_ms = 30000
 	stale_interval_timedelta = timedelta(seconds=stale_interval_ms//1000)
 
@@ -88,6 +88,7 @@ class AppAgent(object):
 		self.collector_conn = None
 		self.periodic_stale = None
 		self.periodic_metrics = None
+		self.received_model_request = False
 
 		# agent metrics initialization:
 
@@ -102,6 +103,7 @@ class AppAgent(object):
 	def setup_collector_connection(self, collector_host):
 
 		# agent ZeroMQ initialization:
+		self.received_model_request = False
 		self.collector_host = collector_host
 		self.collector_conn = AgentDealerConnection(app=self, collector_host=self.collector_host)
 		self.periodic_metrics = PeriodicCallback(self.periodictask_send_metrics, self.metrics_interval_ms)
@@ -117,15 +119,14 @@ class AppAgent(object):
 
 		logging.info("Started periodic task to monitor for messages from collector.")
 
-	def send_msg(self, metric_type='metrics'):
+	def send_msg(self, metrics_type='metrics'):
 
 		"""collect metrics and send them back to the collector"""
 
 		grid = CollectionGrid()
 		for col in self.collectors:
-			grid.add_samples(col.get_samples(self.localhost, metric_type=metric_type))
-		msg = MetricsMessage(self.localhost.hostname, grid.get_grid())
-		logging.info("Sending metrics to collector")
+			grid.add_samples(col.get_samples(self.localhost, metrics_type=metrics_type))
+		msg = MetricsMessage(self.localhost.hostname, grid.get_grid(), metrics_type=metrics_type)
 		msg.send(self.collector_conn.client)
 
 	def periodictask_stale_connection(self):
@@ -137,10 +138,10 @@ class AppAgent(object):
 
 	def periodictask_send_metrics(self):
 
-		"""This runs every interval_ms seconds, and we don't need any logic here -- just send the metrics back
+		"""This runs every interval_ms seconds, and we don't need much logic here -- just send the metrics back
 		periodically."""
 
-		if self.last_collector_msg_on is not None:
+		if self.received_model_request:
 			self.send_msg()
 		else:
 			logging.debug("Not yet sending metrics as we have not received anything from collector.")
@@ -151,8 +152,7 @@ class AppAgent(object):
 			self.setup_collector_connection(collector_host)
 
 			logging.info("Sending hello message to collector.")
-			msg = ControlMessage("hello")
-			msg.send(self.collector_conn.client)
+			ControlMessage("hello").send(self.collector_conn.client)
 
 			# This ioloop will exit if the collection collection becomes stale...
 

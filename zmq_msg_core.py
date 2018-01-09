@@ -15,9 +15,12 @@ class MultiPartMessage(object):
 	def msg(self):
 		return [ self.header ]
 
+	def log(self):
+		logging.info("Sending %s message" % self.header)
+
 	def send(self, socket, identity=None):
 		"Send message to socket"
-		logging.info("Sending %s message" % self.header)
+		self.log()
 		msg = self.msg
 		if identity:
 			msg = [ identity ] + msg

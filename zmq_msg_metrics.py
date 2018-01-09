@@ -14,6 +14,9 @@ class ControlMessage(MultiPartMessage):
 	def msg(self):
 		return [ self.header, self.message.encode("utf-8") ]
 
+	def log(self):
+		logging.info("Sending ControlMessage: %s." % self.message)
+
 	@classmethod
 	def from_msg(cls, msg):
 		"Construct a ControlMessage from a pyzmq message"
@@ -26,21 +29,28 @@ class MetricsMessage(MultiPartMessage):
 
 	header = b"METR"
 
-	def __init__(self, hostname, grid_dict):
+	def __init__(self, hostname, grid_dict, metrics_type="metrics"):
 		self.hostname = hostname
 		self.grid_dict = grid_dict
+		self.metrics_type = metrics_type
 
 	@property
 	def msg(self):
-		return [self.header, self.hostname.encode("utf-8"), json.dumps(self.grid_dict).encode("utf-8")]
+		return [self.header, self.hostname.encode("utf-8"), json.dumps(self.grid_dict).encode("utf-8"),
+			self.metrics_type.encode("utf-8") ]
+
+	def log(self):
+		logging.info("Sending MetricsMessage of type %s" % self.metrics_type)
 
 	@classmethod
 	def from_msg(cls, msg):
-		"Construct a MetricsMessage from a pyzmq message"
-		if len(msg) != 3 or msg[0] != cls.header:
+
+		"""Construct a MetricsMessage from a pyzmq message"""
+
+		if len(msg) != 4 or msg[0] != cls.header:
 			#invalid
 			return None
-		return cls(msg[1].decode("utf-8"), json.loads(msg[2].decode("utf-8")))
+		return cls(msg[1].decode("utf-8"), json.loads(msg[2].decode("utf-8")), msg[3].decode("utf-8"))
 
 class ClientMetricsMessage(MultiPartMessage):
 
