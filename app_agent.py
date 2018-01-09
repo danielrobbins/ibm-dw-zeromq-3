@@ -9,17 +9,20 @@ from datetime import datetime, timedelta
 # This file defines an agent, which is designed to run on a monitored Linux system, and will report metrics to a
 # remote collector.
 
-# Upon initial connection to a remote collector, the agent will send a "hello" ControlMessage. When the remote
-# collector receives this message, it will reply to the agent with a "model" ControlMessage. The "model" ControlMessage
-# tells the agent to immediately send back not only metrics, but also infrequently-changing metrics, such as amount of
-# RAM in the system, for example. Although we are using an asynchronous ROUTER/DEALER pattern, this initial exchange is
-# implemented as effectively synchronous, meaning that the collector immediately responds to the agent's "hello"
-# message with a "model" ControlMessage, and the agent immediately replies to the "model" ControlMessage with a
-# message containing model data for this host.
+# Upon initial connection to a remote collector, the agent will send a "hello" ControlMessage. When the remote collector
+# receives this message, it will reply to the agent with a "model" ControlMessage. The "model" ControlMessage tells the
+# agent to immediately send back infrequently-changing metrics, such as amount of RAM in the system -- we call this
+# information "model data." Although we are using an asynchronous ROUTER/DEALER pattern, this initial exchange is
+# implemented as effectively synchronous, meaning that the collector immediately responds to the agent's "hello" message
+# with a "model" ControlMessage, and the agent immediately replies to the "model" ControlMessage with a message
+# containing model data for this host.
 
-# After this initial message exchange, the agent send back metrics every 5 seconds (this frequency is configurable.)
-# The agent will expect to receive a "ping" ControlMessage from the collector within 30 seconds of having received
-# the initial "model" message, and will expect to continue to receive these "ping" messages at least every 30 seconds.
+# After this initial message exchange, the agent send back system metrics every 5 seconds (this frequency is
+# configurable.) These metrics are dynamic in nature so they will be reported periodically. This information is referred
+# to as "metrics data".
+
+# The agent will expect to receive a "ping" ControlMessage from the collector within 30 seconds of having received the
+# initial "model" message, and will expect to continue to receive these "ping" messages at least every 30 seconds.
 
 # If the agent does not receive a message from the collector at least every 30 seconds, then the agent will assume that
 # the connection to the collector is stale, and will shut down its ioloop and attempt to reconnect. It is important to

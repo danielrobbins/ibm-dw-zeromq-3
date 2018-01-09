@@ -20,28 +20,27 @@ from logging_settings import *
 # The agent ROUTER connection works as follows. We wait for one or more agents to connect. When an agent connects, we
 # expect to receive an initial "hello" ControlMessage. Upon receipt of this message, we reply with a "model"
 # ControlMessage, which tells the agent to immediately send us infrequently-changing attributes of the remote host, such
-# as configured RAM and swap, which we call 'model' data. We then expect to receive metrics (not including "model" data)
-# to arrive from the agent periodically. The frequency that we receive metrics something configured on the agent side.
-# If we have not received any messages from an agent for thirty seconds, then we consider the agent connection to be
-# stale and we remove it from our list of identities. We also know that the agent expects to hear from us at least every
-# 30 seconds. To be safe, we send a "ping" message to each agent every 15 seconds to let each know that we are still
-# here, available for more metrics.
+# as configured RAM and swap, which we call "model data." We then expect to receive metrics from the agent periodically
+# -- we call this data "metrics data", and it's different than the "model data" we received from the agent initially.
+# The frequency that we receive metrics something configured on the agent side. If we have not received any messages
+# from an agent for thirty seconds, then we consider the agent connection to be stale and we remove it from our list of
+# active agents. We also know that the agent expects to hear from us at least every 30 seconds. To be safe, we send a
+# "ping" message to each agent every 15 seconds to let each agent know that we are still here, waiting for more metrics.
 
-# If the collector restarts, it is possible that ZeroMQ will automatically reconnect a running agent without its
-# explicit knowledge of the interrupted connection. In this scenario, it is possible that the collector will begin
-# to receive metrics data for a host for which it has no model data. When this event occurs, the collector will send
-# a "model" ControlMessage to the agent and expect an immediate reply of "model" data.
+# If the collector restarts, it is possible that ZeroMQ will automatically reconnect a running agent to the new
+# collector instance behind the scenes. In this scenario, the agent will not 'see' that the connection has been
+# interrupted and will continue sending metrics data. When this occurs, it is possible that the collector will begin to
+# receive metrics data for a host for which it has no model data. When this situation occurs, the collector will send a
+# "model" ControlMessage to the agent and expect an immediate response from the agent consisting of model data.
 
 # CLIENT CONNECTION - for receiving forwarded metrics from all hosts
 
-# When a client connects, we expect to immediately receive an initial "hello" ControlMessage. After receiving this
-# message, we will immediately reply with a list of hosts and their infrequently-changing attributes -- our "model"
-# data. After this initial exchange, we will forward metric data to the client(s) asynchronously, as we receive it from
-# each agent. If we don't, we will consider the client connection to be dead and will remove the client from our list of
-# connected clients. In turn, the collector will ensure that it sends a message of some form to each client at least
-# every 30 seconds (we have configured it for 15 seconds, to be safe) We will send a "ping" ControlMessage so the client
-# can know that its connection to the collector is active. These messages are send asynchonously and are not tied to one
-# another in any kind of request/reply pattern.
+# When a client connects, we expect to immediately receive an initial "hello" ControlMessage from it. After receiving
+# this message, we will immediately reply with a list of hosts and their infrequently-changing attributes -- our "model
+# data." After this initial exchange, we will forward metric data to the client(s) asynchronously, as we receive it from
+# each agent, as well as model data for new agents that connect. We also know that each client expects to hear from the
+# collector at least every 30 seconds. So every 15 seconds, we will send a "ping" ControlMessage to each client. These
+# messages are sent asynchonously and are not tied to one another in any kind of request/reply pattern.
 
 class CollectorMetricRouterListener(RouterListener):
 
