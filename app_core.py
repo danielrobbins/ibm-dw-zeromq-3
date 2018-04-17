@@ -2,6 +2,8 @@
 
 import sys
 import zmq
+import string
+import random
 from zmq.eventloop.ioloop import IOLoop, PeriodicCallback
 from zmq.eventloop.zmqstream import ZMQStream
 from zmq.auth.ioloop import IOLoopAuthenticator
@@ -20,13 +22,15 @@ class DealerConnection(object):
 
 		self.ctx = zmq.Context()
 		self.client = self.ctx.socket(zmq.DEALER)
+		self.client.setsockopt(zmq.IDENTITY, (''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(16)).encode("ascii"))
+ )
 
 		if self.crypto:
 			self.keymonkey = KeyMonkey(keyname)
 			self.client = self.keymonkey.setupClient(self.client, self.endpoint, remote_keyname)
 
 		self.client.connect(self.endpoint)
-		logging.info("Connecting to " + self.endpoint)
+		logging.debug("Connecting to " + self.endpoint)
 		self.client = ZMQStream(self.client)
 		self.setup()
 
@@ -54,7 +58,7 @@ class RouterListener(object):
 			self.server = self.keymonkey.setupServer(self.server, self.bind_addr)
 
 		self.server.bind(self.bind_addr)
-		logging.info("%s listening for new client connections at %s" % ( self.keyname, self.bind_addr))
+		logging.debug("%s listening for new client connections at %s" % ( self.keyname, self.bind_addr))
 		self.server = ZMQStream(self.server)
 		# Setup ZAP:
 		if self.zap_auth:
@@ -77,8 +81,9 @@ class RouterListener(object):
 		if self.zap_auth:
 			self.auth.start()
 
+
 def start_ioloop():
-	loop = IOLoop.instance()
+	loop = IOLoop.current()
 	try:
 		loop.start()
 	except KeyboardInterrupt:

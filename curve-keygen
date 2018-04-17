@@ -9,6 +9,7 @@ import shutil
 import zmq.auth
 import argparse
 
+
 class KeyGenerator(object):
 
 	def __init__(self,myid="id_curve",dest=None):

@@ -1,7 +1,7 @@
 #! /usr/bin/python3
 
 from app_core import *
-from zmq_msg_metrics import MetricsMessage, ControlMessage, ClientMetricsMessage
+from zmq_msg_metrics import MetricsMessage, ControlMessage
 from datetime import datetime, timedelta
 from logging_settings import *
 
@@ -45,11 +45,7 @@ from logging_settings import *
 class CollectorMetricRouterListener(RouterListener):
 
 	def __init__(self, app, listen_ip):
-		RouterListener.__init__(self,
-		                        app=app,
-		                        keyname="collector",
-		                        bind_addr="tcp://%s:5556" % listen_ip,
-		                        zap_auth=False)
+		RouterListener.__init__(self, app=app, keyname="collector", bind_addr="tcp://%s:5556" % listen_ip, zap_auth=False)
 		self.identities = {}
 		self.hostname_to_conn_id = {}
 
@@ -68,6 +64,7 @@ class CollectorMetricRouterListener(RouterListener):
 			# We have received some kind of metrics message:
 
 			msg_obj = MetricsMessage.from_msg(msg[1:])
+			logging.debug("Received message from agent %s: %s" % (conn_id, msg[1:]))
 
 			# Here we deal with a scenario where a host disconnects, but then reconnects under a new connection ID.
 			# When we detect the same host on a new connection, then we will automatically expire the old connection.
@@ -75,7 +72,7 @@ class CollectorMetricRouterListener(RouterListener):
 			if msg_obj.hostname in self.hostname_to_conn_id:
 				if self.hostname_to_conn_id[msg_obj.hostname] != conn_id:
 					# we are receiving data for this hostname from another connection -- maybe the previous connection
-					logging.info("Receiving metrics data for %s on new connection" % msg_obj.hostname)
+					logging.debug("Receiving metrics data for %s on new connection" % msg_obj.hostname)
 					old_conn_id = self.hostname_to_conn_id[msg_obj.hostname]
 					if old_conn_id in self.identities:
 						del self.identities[old_conn_id]
@@ -97,8 +94,6 @@ class CollectorMetricRouterListener(RouterListener):
 					logging.info("We are missing model data for %s; requesting it." % msg_obj.hostname)
 					ControlMessage("model").send(self.server, identity=conn_id)
 
-			logging.info("Received %s data from %s via identity %s." % (msg_obj.metrics_type, msg_obj.hostname, conn_id))
-
 			# But all metrics data, either 'model' or 'metrics' flavors, gets forwarded to all connected clients as we
 			# receive them. This way, connected clients will receive new 'model' messages for newly-connected agents,
 			# as well as periodic metrics from the agents:
@@ -111,10 +106,10 @@ class CollectorMetricRouterListener(RouterListener):
 
 			msg_obj = ControlMessage.from_msg(msg[1:])
 			if msg_obj.message == "hello":
-				logging.info("Received hello message from agent %s" % conn_id)
+				logging.debug("Received hello message from agent %s" % conn_id)
 				ControlMessage("model").send(self.server, identity=conn_id)
 			else:
-				logging.info("Received %s message from agent %s" % msg_obj.message, conn_id)
+				logging.debug("Received %s message from agent %s" % msg_obj.message, conn_id)
 
 	def remove_agent(self, agent_conn_id):
 		del self.identities[agent_conn_id]
@@ -122,11 +117,7 @@ class CollectorMetricRouterListener(RouterListener):
 class CollectorClientRouterListener(RouterListener):
 
 	def __init__(self, app):
-		RouterListener.__init__(self,
-		                        app=app,
-		                        keyname="collector",
-		                        bind_addr="tcp://127.0.0.1:5557",
-		                        zap_auth=True)
+		RouterListener.__init__(self, app=app, keyname="collector", bind_addr="tcp://127.0.0.1:5557", zap_auth=True)
 
 		self.identities = {}
 		self.identities_last_send = {}
@@ -140,7 +131,7 @@ class CollectorClientRouterListener(RouterListener):
 		if msg[1] == ControlMessage.header:
 			msg_obj = ControlMessage.from_msg(msg[1:])
 			if msg_obj.message == "hello":
-				logging.info("Received 'hello' message from agent %s" % client_conn_id)
+				logging.info("Received 'hello' message from client %s" % client_conn_id)
 				if client_conn_id not in self.identities:
 					self.app.send_cached_model_data_to_client(client_conn_id)
 
@@ -152,8 +143,8 @@ class CollectorClientRouterListener(RouterListener):
 
 class AppCollector(object):
 
-	agent_interval_ms = 15000
-	client_interval_ms = 5000
+	agent_ping_interval_ms = 5000
+	client_ping_interval_ms = 5000
 	stale_interval = timedelta(seconds=30)
 	ping_interval = timedelta(seconds=20)
 	ping = ControlMessage("ping")
@@ -163,8 +154,8 @@ class AppCollector(object):
 
 		self.listen_agents = CollectorMetricRouterListener(self, listen_ip)
 		self.listen_clients = CollectorClientRouterListener(self)
-		self.periodic_agent = PeriodicCallback(self.agent_periodictask, self.agent_interval_ms)
-		self.periodic_client = PeriodicCallback(self.client_periodictask, self.client_interval_ms)
+		self.periodic_agent = PeriodicCallback(self.agent_ping, self.agent_ping_interval_ms)
+		self.periodic_client = PeriodicCallback(self.client_ping, self.client_ping_interval_ms)
 
 	def record_model_data(self, msg_obj):
 
@@ -196,22 +187,21 @@ class AppCollector(object):
 		:param msg_obj: The message object we received from the agent.
 		:return: None
 		"""
-
 		client_count = 0
 
 		for client_conn_id, client_last_recv in self.listen_clients.identities.items():
 			client_count += 1
 
 			# relay the message to this client:
-			msg_obj.send(client_conn_id)
+			msg_obj.send(self.listen_clients.server, identity=client_conn_id)
 
 			# update record of when we last sent data to this client:
 			self.listen_clients.identities_last_send[client_conn_id] = datetime.utcnow()
 
 		if client_count:
-			logging.info("Relayed metrics to %s clients." % client_count)
+			logging.debug("Relayed metrics to %s clients." % client_count)
 
-	def client_periodictask(self):
+	def client_ping(self):
 
 		"""
 		This periodic task performs two functions -- first, it will look for any clients that we haven't heard from
@@ -250,12 +240,11 @@ class AppCollector(object):
 			self.listen_clients.remove_client(client_conn_id)
 
 		if client_count:
-			logging.info("Removed %s stale clients." % client_count)
+			logging.debug("Removed %s stale clients." % client_count)
 
-	def agent_periodictask(self):
+	def agent_ping(self):
 
 		utc_now = datetime.utcnow()
-
 		to_remove = []
 
 		# Periodically send "ping" message back to connected agents, or if we haven't seen them in a while, remove
@@ -263,7 +252,7 @@ class AppCollector(object):
 
 		for conn_id, last_seen in self.listen_agents.identities.items():
 			if (utc_now - last_seen) > self.stale_interval:
-				logging.info("Agent identity %s stale. Adding to removal list." % conn_id)
+				logging.debug("Agent identity %s stale. Adding to removal list." % conn_id)
 				to_remove.append(conn_id)
 			else:
 				self.ping.send(self.listen_agents.server, identity=conn_id)
@@ -275,7 +264,7 @@ class AppCollector(object):
 			for conn_id in to_remove:
 				if conn_id in conn_id_to_hostname_map:
 					hostname = conn_id_to_hostname_map[conn_id]
-					logging.info("Removing %s from list of active agents." % hostname)
+					logging.debug("Removing %s from list of active agents." % hostname)
 					if hostname in self.model_data:
 						del self.model_data[hostname]
 

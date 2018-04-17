@@ -49,7 +49,7 @@ class KeyMonkey(object):
 			logging.error("Couldn't load private key: %s" % self.private_key)
 			return None
 		server.curve_server = True
-		logging.info("Set up server listening on %s using curve key '%s'." % (endpoint, self.myid))
+		logging.debug("Set up server listening on %s using curve key '%s'." % (endpoint, self.myid))
 		return server
 
 	def setupClient(self, client, endpoint, servername):
@@ -58,7 +58,7 @@ class KeyMonkey(object):
 		client.curve_secretkey = bar
 		foo, _ = zmq.auth.load_certificate(self.curvedir + "/" + servername + ".key" )
 		client.curve_serverkey = foo
-		logging.info("Set up client connecting to %s (key '%s') using curve key '%s'." % (endpoint, servername, self.myid))
+		logging.debug("Set up client connecting to %s (key '%s') using curve key '%s'." % (endpoint, servername, self.myid))
 		return client
 		
 # vim: ts=4 sw=4 noet
