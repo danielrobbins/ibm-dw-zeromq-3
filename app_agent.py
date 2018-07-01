@@ -2,7 +2,7 @@
 
 from app_core import *
 from zmq_msg_metrics import MetricsMessage, ControlMessage
-from metrics import Host, UptimeCollector, MeminfoCollector
+from metrics import Host, UptimeCollector, MeminfoCollector, CPUPercentCollector
 from logging_settings import *
 from datetime import datetime, timedelta
 
@@ -36,6 +36,7 @@ from datetime import datetime, timedelta
 # so the collector will not require the agent's public CurveZMQ key. However, our agent will require the collector's
 # CurveZMQ key so that it can authenticate that it is connecting and reporting metrics back to the to the authentic
 # (non-impersonated) collector. This key must be stored in ~/.curve/collector.key file.
+
 
 class AgentDealerConnection(DealerConnection):
 
@@ -73,6 +74,7 @@ class AgentDealerConnection(DealerConnection):
 				return
 		logging.warning("Received unknown message from collector.")
 
+
 class AppAgent(object):
 
 	"""The AppAgent is the main python class that wraps our agent application. It is configured to report metrics
@@ -95,7 +97,7 @@ class AppAgent(object):
 		# agent metrics initialization:
 
 		self.localhost = Host()
-		self.collectors = [UptimeCollector(), MeminfoCollector()]
+		self.collectors = [UptimeCollector(), MeminfoCollector(), CPUPercentCollector()]
 
 		# These properties are used to track when we have last heard from the collector, and whether we should send
 		# data back.

@@ -5,6 +5,7 @@ from zmq_msg_metrics import MetricsMessage, ControlMessage
 import curses
 from datetime import datetime
 
+
 class ClientDealerConnection(DealerConnection):
 
 	def __init__(self, app, collector_host):
@@ -17,6 +18,7 @@ class ClientDealerConnection(DealerConnection):
 		if msg[0] == MetricsMessage.header:
 			msg_obj = MetricsMessage.from_msg(msg)
 			self.app.update_metrics_data(msg_obj)
+
 
 class AppClient(object):
 
@@ -32,6 +34,10 @@ class AppClient(object):
 	def update_metrics_data(self, metrics_msg):
 		curses_write(self.stdscr, 0, 1, metrics_msg.hostname)
 		curses_write(self.stdscr, 0, 2, repr(metrics_msg.grid_dict))
+		avail_mem = metrics_msg.grid_dict["mem.avail"]
+		total_mem = metrics_msg.grid_dict["mem.avail"] + metrics_msg.grid_dict["mem.free"] + metrics_msg.grid_dict["mem.buffers"] + metrics_msg.grid_dict["mem.cached"]
+		utilization_bar(self.stdscr, 3, "mem", avail_mem, total_mem, color=12)
+		utilization_bar(self.stdscr, 4, "cpu", int(metrics_msg.grid_dict["cpu.percent"] * 100), 100)
 		self.stdscr.refresh()
 
 	def screen_periodictask(self):
@@ -44,8 +50,6 @@ class AppClient(object):
 
 	def start(self):
 		self.stdscr.clear()
-		curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
-		curses_write(self.stdscr, 0, 0, repr(datetime.now()))
 		self.stdscr.refresh()
 		self.screen_periodic.start()
 		self.hello_periodic.start()
@@ -53,7 +57,7 @@ class AppClient(object):
 		start_ioloop()
 
 
-def curses_write(stdscr, x, y, output):
+def curses_write(stdscr, x, y, output, color=0):
 	if y >= curses.LINES:
 		return
 	if x >= curses.COLS:
@@ -61,16 +65,30 @@ def curses_write(stdscr, x, y, output):
 	to_trunc = (x + len(output)) - curses.COLS
 	if to_trunc > 0:
 		output = output[:-to_trunc]
-	stdscr.addstr(y, x, output)
+	stdscr.addstr(y, x, output, curses.color_pair(color))
+
+
+def utilization_bar(stdscr, y, label, stat, scale, color=11):
+	bar_length = curses.COLS * (stat / scale)
+	outstr = "=" * int(bar_length) + " " * (curses.COLS - int(bar_length))
+	curses_write(stdscr, 0, y, label + " ")
+	curses_write(stdscr, len(label) + 1, y, outstr[len(label)+1:], color)
+
 
 def main(stdscr):
+	curses.start_color()
+	curses.use_default_colors()
+	for i in range(0, curses.COLORS):
+		curses.init_pair(i + 1, i, -1)
 	agent = AppClient(sys.argv[1], stdscr)
 	agent.start()
+
 
 if __name__ == "__main__":
 	# Start client:
 	if len(sys.argv) != 2:
 		print("Please specify the client hostname or IP address as the first and only argument.")
 		sys.exit(1)
+
 	curses.wrapper(main)
 

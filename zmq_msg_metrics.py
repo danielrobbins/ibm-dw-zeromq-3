@@ -3,6 +3,7 @@
 from zmq_msg_core import *
 import json
 
+
 class ControlMessage(MultiPartMessage):
 
 	header = b"CTRL"
@@ -24,6 +25,7 @@ class ControlMessage(MultiPartMessage):
 			#invalid
 			return None
 		return cls(msg[1].decode("utf-8"))
+
 
 class MetricsMessage(MultiPartMessage):
 

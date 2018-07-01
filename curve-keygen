@@ -14,7 +14,7 @@ class KeyGenerator(object):
 
 	def __init__(self,myid="id_curve",dest=None):
 		self.myid = myid
-		if dest == None:
+		if dest is None:
 			self.curvedir = os.path.expanduser("~") + "/.curve"
 		else:
 			self.curvedir = dest
@@ -42,6 +42,7 @@ class KeyGenerator(object):
 		os.chmod(self.private_key, 0o600)
 		print("Created %s." % self.public_key)
 		print("Created %s." % self.private_key)
+
 
 if __name__ == '__main__':
 	if zmq.zmq_version_info() < (4,0):

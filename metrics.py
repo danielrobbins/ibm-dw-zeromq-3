@@ -100,3 +100,40 @@ class MeminfoCollector(Collector):
 			except (IndexError, ValueError):
 				pass
 
+
+class CPUPercentCollector(object):
+	
+	def __init__(self):
+		# our algorithm uses a delta from a previous reading. Let's grab this:
+		self.prev = self.run()
+	
+	def run(self):
+		with open('/proc/stat', 'r') as f_stat:
+			while True:
+				line = f_stat.readline()
+				if line is None:
+					break
+				ls = line.split()
+				if len(ls) and ls[0] == 'cpu':
+					return list(map(int, ls[1:]))
+	
+	def get_samples(self, metrics_type=None):
+		cur = self.run()
+		previdle = self.prev[3] + self.prev[4]
+		idle = cur[3] + cur[4]
+		
+		prevnonidle = self.prev[0] + self.prev[1] + self.prev[2] + self.prev[5] + self.prev[6] + self.prev[7]
+		nonidle = cur[0] + cur[1] + cur[2] + cur[5] + cur[6] + cur[7]
+		
+		prevtotal = previdle + prevnonidle
+		total = idle + nonidle
+		
+		totald = total - prevtotal
+		idled = idle - previdle
+		
+		self.prev = cur
+		if totald == 0:
+			yield "cpu.percent", 0
+		else:
+			yield "cpu.percent", ((totald - idled) / totald) * 100
+	

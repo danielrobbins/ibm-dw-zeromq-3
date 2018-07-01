@@ -87,7 +87,7 @@ def start_ioloop():
 	try:
 		loop.start()
 	except KeyboardInterrupt:
-		pass
+		sys.exit(1)
 
 def stop_ioloop():
 	loop = IOLoop.instance()
