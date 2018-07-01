@@ -30,14 +30,19 @@ class AppClient(object):
 		self.screen_periodic = PeriodicCallback(self.screen_periodictask, self.screen_interval_ms)
 		self.hello_periodic = PeriodicCallback(self.send_hello, self.hello_interval_ms)
 		self.stdscr = stdscr
+		self.hostnames = [] # ordered list of hostnames for display
 
 	def update_metrics_data(self, metrics_msg):
-		curses_write(self.stdscr, 0, 1, metrics_msg.hostname)
-		curses_write(self.stdscr, 0, 2, repr(metrics_msg.grid_dict))
+		if metrics_msg.hostname not in self.hostnames:
+			self.hostnames.append(metrics_msg.hostname)
+		screen_pos = self.hostnames.index(metrics_msg.hostname)
+		
+		curses_write(self.stdscr, 0, screen_pos * 5 + 1, metrics_msg.hostname)
+		curses_write(self.stdscr, 0, screen_pos * 5 + 2, repr(metrics_msg.grid_dict))
 		avail_mem = metrics_msg.grid_dict["mem.avail"]
 		total_mem = metrics_msg.grid_dict["mem.avail"] + metrics_msg.grid_dict["mem.free"] + metrics_msg.grid_dict["mem.buffers"] + metrics_msg.grid_dict["mem.cached"]
-		utilization_bar(self.stdscr, 3, "mem", avail_mem, total_mem, color=12)
-		utilization_bar(self.stdscr, 4, "cpu", int(metrics_msg.grid_dict["cpu.percent"] * 100), 100)
+		utilization_bar(self.stdscr, screen_pos * 5 + 3, "mem", avail_mem, total_mem, color=12)
+		utilization_bar(self.stdscr, screen_pos * 5 + 4, "cpu", int(metrics_msg.grid_dict["cpu.percent"] * 100), 100)
 		self.stdscr.refresh()
 
 	def screen_periodictask(self):

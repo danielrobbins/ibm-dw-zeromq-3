@@ -101,7 +101,7 @@ class MeminfoCollector(Collector):
 				pass
 
 
-class CPUPercentCollector(object):
+class CPUPercentCollector(Collector):
 	
 	def __init__(self):
 		# our algorithm uses a delta from a previous reading. Let's grab this:
